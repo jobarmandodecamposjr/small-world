@@ -1699,8 +1699,12 @@
         // Define as dimensões do mundo para X e Z (para efeito de envolvimento)
         const worldSize = 1200;
         let birds = []; // NOVO: Array para armazenar os pássaros
+        let seagulls = [];
         const birdPopulation = 11;
+        const seagullPopulation = 11;
         const birdIslandBoundary = 185;
+        const seagullInnerRadius = 150;
+        const seagullOuterRadius = 280;
         const birdPlayerFleeDistance = 10 / 3;
         const birdFlightSpeed = 16;
         const birdMaxAltitude = 80;
@@ -1708,8 +1712,9 @@
         let islandAmbientAudio = null; // Som ambiente da ilha (interior)
         let beachAmbientAudio = null; // Som ambiente da praia/mar
         let nextBirdSoundTime = 10 + Math.random() * 20; // Próximo tempo para som de pássaro
+        let nextSeagullSoundTime = 12 + Math.random() * 24;
         let birdBodyGeom, birdWingGeom, birdTailGeom, birdHeadGeom, birdBeakGeom, birdEyeGeom, birdPupilGeom, birdFootGeom, birdToeGeom;
-        let birdPalettes, birdEyeMat, birdPupilMat, birdBeakMat, birdFootMat;
+        let birdPalettes, seagullPalette, birdEyeMat, birdPupilMat, birdBeakMat, birdFootMat;
 
         const islandAmbientUrl = "https://dl.dropbox.com/scl/fi/3dolt8qlwr3rh51j5oy4l/wind_island_nature_t_-2-1774031396110.mp3?rlkey=u6kc916o88hg0f1tqf7kfkp52&st=yktjz581&dl=1";
         const jumpCollectUrl = "https://dl.dropbox.com/scl/fi/sjpuxweazroikuidy9zxd/jump_from_the_grass.mp3?rlkey=rnk2n6irrt9lys5twbwcsd8g9&st=ck8xzpsg&dl=1";
@@ -6190,7 +6195,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
         }
 
         // NOVO: Funções para o sistema de pássaros
-        function createBirdMesh() {
+        function createBirdMesh(species = 'bird') {
             if (!birdBodyGeom) {
                 birdBodyGeom = new THREE.SphereGeometry(1, 12, 8);
                 const wingShape = new THREE.Shape();
@@ -6238,6 +6243,12 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     belly: new THREE.MeshStandardMaterial({ color: palette.belly, roughness: 0.82, flatShading: true }),
                     tail: new THREE.MeshStandardMaterial({ color: palette.wing, roughness: 0.78, flatShading: true, side: THREE.DoubleSide })
                 }));
+                seagullPalette = {
+                    body: new THREE.MeshStandardMaterial({ color: 0xf4f3ed, roughness: 0.78, flatShading: true }),
+                    wing: new THREE.MeshStandardMaterial({ color: 0x555b62, roughness: 0.78, flatShading: true, side: THREE.DoubleSide }),
+                    belly: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.82, flatShading: true }),
+                    tail: new THREE.MeshStandardMaterial({ color: 0x555b62, roughness: 0.78, flatShading: true, side: THREE.DoubleSide })
+                };
                 birdEyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.45 });
                 birdPupilMat = new THREE.MeshStandardMaterial({ color: 0x171717, roughness: 0.35 });
                 birdBeakMat = new THREE.MeshStandardMaterial({ color: 0xf28c28, roughness: 0.72, flatShading: true });
@@ -6245,7 +6256,9 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             }
 
             const bird = new THREE.Group();
-            const palette = birdPalettes[Math.floor(Math.random() * birdPalettes.length)];
+            const palette = species === 'seagull'
+                ? seagullPalette
+                : birdPalettes[Math.floor(Math.random() * birdPalettes.length)];
             const body = new THREE.Mesh(birdBodyGeom, palette.body);
             body.scale.set(0.2, 0.19, 0.36);
             bird.add(body);
@@ -6379,6 +6392,137 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
         function populateBirdNests() {
             ensureBirdPopulation();
+            ensureSeagullPopulation();
+        }
+
+        function ensureSeagullPopulation() {
+            while (seagulls.length > seagullPopulation) {
+                const seagull = seagulls.pop();
+                scene.remove(seagull.mesh);
+            }
+
+            while (seagulls.length < seagullPopulation) {
+                const index = seagulls.length;
+                const angle = index * Math.PI * 2 / seagullPopulation +
+                    (Math.random() - 0.5) * 0.3;
+                const radius = seagullInnerRadius +
+                    Math.random() * (seagullOuterRadius - seagullInnerRadius);
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                const mesh = createBirdMesh('seagull');
+                const seaOrGroundLevel = Math.max(waterLevel, getBirdGroundHeight(x, z));
+                mesh.position.set(x, seaOrGroundLevel + 20, z);
+                scene.add(mesh);
+
+                const seagull = {
+                    mesh,
+                    velocity: new THREE.Vector3(),
+                    flapOffset: Math.random() * Math.PI * 2,
+                    flapSpeed: 10 + Math.random() * 5,
+                    flySpeed: birdFlightSpeed,
+                    state: 'flying',
+                    wanderAngle: Math.random() * Math.PI * 2,
+                    nextWanderAt: world.time + 2 + Math.random() * 5,
+                    desiredRadius: radius,
+                    headLookTarget: 0,
+                    nextHeadLookAt: world.time + Math.random() * 3
+                };
+                seagull.velocity.set(
+                    Math.cos(seagull.wanderAngle),
+                    0,
+                    Math.sin(seagull.wanderAngle)
+                ).multiplyScalar(birdFlightSpeed);
+                faceBirdHorizontally(seagull);
+                seagulls.push(seagull);
+            }
+        }
+
+        function updateSeagulls(delta) {
+            ensureSeagullPopulation();
+            for (const seagull of seagulls) {
+                seagull.mesh.scale.setScalar(seagull.mesh.userData.heightScale);
+                updateBirdHeadLook(seagull, delta);
+
+                const radius = Math.hypot(seagull.mesh.position.x, seagull.mesh.position.z);
+                if (world.time >= seagull.nextWanderAt) {
+                    const inwardAngle = Math.atan2(-seagull.mesh.position.z, -seagull.mesh.position.x);
+                    seagull.wanderAngle = radius > seagullOuterRadius - 35
+                        ? inwardAngle + (Math.random() - 0.5) * 1.2
+                        : seagull.wanderAngle + (Math.random() - 0.5) * 2.4;
+                    seagull.nextWanderAt = world.time + 2 + Math.random() * 5;
+                }
+
+                const direction = new THREE.Vector3(
+                    Math.cos(seagull.wanderAngle),
+                    0,
+                    Math.sin(seagull.wanderAngle)
+                );
+                if (radius > seagullOuterRadius - 35) {
+                    const inward = new THREE.Vector3(
+                        -seagull.mesh.position.x,
+                        0,
+                        -seagull.mesh.position.z
+                    ).normalize();
+                    direction.lerp(inward, THREE.MathUtils.clamp(
+                        (radius - (seagullOuterRadius - 35)) / 35,
+                        0,
+                        0.9
+                    )).normalize();
+                } else if (radius < seagullInnerRadius + 20) {
+                    const outward = new THREE.Vector3(
+                        seagull.mesh.position.x,
+                        0,
+                        seagull.mesh.position.z
+                    ).normalize();
+                    direction.lerp(outward, THREE.MathUtils.clamp(
+                        (seagullInnerRadius + 20 - radius) / 20,
+                        0,
+                        0.9
+                    )).normalize();
+                }
+
+                seagull.velocity.x = direction.x * birdFlightSpeed;
+                seagull.velocity.z = direction.z * birdFlightSpeed;
+                const surfaceHeight = Math.max(
+                    waterLevel,
+                    getBirdGroundHeight(seagull.mesh.position.x, seagull.mesh.position.z)
+                );
+                seagull.velocity.y = THREE.MathUtils.clamp(
+                    (surfaceHeight + 20 - seagull.mesh.position.y) * 0.8,
+                    -birdFlightSpeed * birdMaxVerticalSpeedRatio,
+                    birdFlightSpeed * birdMaxVerticalSpeedRatio
+                );
+                constrainBirdFlightVelocity(seagull);
+
+                const previousPosition = seagull.mesh.position.clone();
+                const nextPosition = previousPosition.clone()
+                    .add(seagull.velocity.clone().multiplyScalar(delta));
+                const nextRadius = Math.hypot(nextPosition.x, nextPosition.z);
+                if (nextRadius < seagullInnerRadius) {
+                    const scale = seagullInnerRadius / Math.max(nextRadius, 0.001);
+                    nextPosition.x *= scale;
+                    nextPosition.z *= scale;
+                } else if (nextRadius > seagullOuterRadius) {
+                    const scale = seagullOuterRadius / nextRadius;
+                    nextPosition.x *= scale;
+                    nextPosition.z *= scale;
+                }
+
+                const seaHeight = Math.max(
+                    waterLevel,
+                    getBirdGroundHeight(nextPosition.x, nextPosition.z)
+                );
+                nextPosition.y = Math.max(nextPosition.y, seaHeight + seagull.mesh.userData.perchHeight);
+                seagull.mesh.position.copy(nextPosition);
+                faceBirdHorizontally(seagull);
+
+                const flapAngle = Math.sin(world.time * seagull.flapSpeed + seagull.flapOffset) * 0.8;
+                const foldAmount = (1 - Math.cos(world.time * seagull.flapSpeed * 0.55 + seagull.flapOffset)) / 2;
+                seagull.mesh.userData.leftWing.rotation.y = foldAmount * 0.7;
+                seagull.mesh.userData.rightWing.rotation.y = -foldAmount * 0.7;
+                seagull.mesh.userData.leftWing.rotation.z = flapAngle;
+                seagull.mesh.userData.rightWing.rotation.z = -flapAngle;
+            }
         }
 
         function getAvailableBirdSleepTrees() {
@@ -7012,24 +7156,9 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             const hasNearbyBirds = isNestFleeSound || birds.some(bird =>
                 bird.mesh.visible && bird.mesh.position.distanceTo(playerPos) <= 300
             );
-            const dist = calculateWrappedDistance(playerPos, new THREE.Vector3(0, playerPos.y, 0));
+            if (!hasNearbyBirds) return;
 
-            let pool = [];
-
-            if (dist < capimRadius) {
-                // Parte central da ilha (capim): apenas pássaros
-                pool = hasNearbyBirds ? birdSoundUrls : [];
-            } else if (dist < beachRadius) {
-                // Parte da praia: gaivotas e pássaros
-                pool = (hasNearbyBirds ? birdSoundUrls : []).concat(seagullSoundUrls);
-            } else {
-                // No mar: apenas gaivotas
-                pool = seagullSoundUrls;
-            }
-
-            if (pool.length === 0) return;
-
-            const randomUrl = pool[Math.floor(Math.random() * pool.length)];
+            const randomUrl = birdSoundUrls[Math.floor(Math.random() * birdSoundUrls.length)];
             const buffer = audioBuffers[randomUrl];
 
             if (buffer) {
@@ -7039,6 +7168,28 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     playOneShot(buffer, volume);
                 }
             }
+        }
+
+        function playAmbientSeagullSound() {
+            if (gamePaused || seagulls.length === 0 || !gameAudioContext) return;
+
+            const playerPos = camera.position;
+            let minSeagullDist = Infinity;
+            seagulls.forEach(seagull => {
+                if (!seagull.mesh.visible) return;
+                minSeagullDist = Math.min(
+                    minSeagullDist,
+                    seagull.mesh.position.distanceTo(playerPos)
+                );
+            });
+            if (minSeagullDist > 300) return;
+
+            const randomUrl = seagullSoundUrls[Math.floor(Math.random() * seagullSoundUrls.length)];
+            const buffer = audioBuffers[randomUrl];
+            if (!buffer) return;
+
+            const volume = Math.max(0, 0.25 * (1 - minSeagullDist / 300));
+            if (volume > 0) playOneShot(buffer, volume);
         }
 
         function updateRain(delta) {
@@ -15206,9 +15357,14 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         playAmbientBirdSound();
                         nextBirdSoundTime = world.time + 10 + Math.random() * 20;
                     }
+                    if (world.time > nextSeagullSoundTime) {
+                        playAmbientSeagullSound();
+                        nextSeagullSoundTime = world.time + 12 + Math.random() * 24;
+                    }
                 }
 
                 updateBirds(delta, despawnDist, sunAltitude <= 0);
+                updateSeagulls(delta);
             }
 
             // Intensidade local é global agora
@@ -16201,6 +16357,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             window.seagullSoundUrls = seagullSoundUrls;
             window.audioBuffers = audioBuffers;
             window.playAmbientBirdSound = playAmbientBirdSound;
+            window.playAmbientSeagullSound = playAmbientSeagullSound;
             window.world = world;
             Object.defineProperty(window, 'nextBirdSoundTime', {
                 get: () => nextBirdSoundTime,
@@ -16348,6 +16505,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             // Weather exposure
             window.clouds = clouds;
             window.birds = birds;
+            window.seagulls = seagulls;
             window.birdFlightSpeed = birdFlightSpeed;
             window.rainPuddles = rainPuddles;
             Object.defineProperty(window, 'targetCloudCount', {
@@ -16517,6 +16675,10 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 scene.remove(birds[i].mesh);
             }
             birds.length = 0;
+            for (let i = seagulls.length - 1; i >= 0; i--) {
+                scene.remove(seagulls[i].mesh);
+            }
+            seagulls.length = 0;
 
             // Limpa construções colocadas
             for (let i = placedConstructionBodies.length - 1; i >= 0; i--) {
