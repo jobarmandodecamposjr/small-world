@@ -6309,7 +6309,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             rightWingPivot.add(rightWing);
 
             const birdHeight = new THREE.Box3().setFromObject(bird).getSize(new THREE.Vector3()).y;
-            const heightScale = 0.4 / birdHeight;
+            const heightScale = 0.25 / birdHeight;
             bird.scale.setScalar(heightScale);
             bird.userData = { leftWing: leftWingPivot, rightWing: rightWingPivot, body, tail, feet, heightScale };
             setBirdPerchedPose({ mesh: bird }, true);
@@ -6434,14 +6434,10 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 bird.perchTargetBody = null;
                 bird.state = 'flying';
                 bird.perchUntil = 0;
-                const fleeDirection = horizontalAway.clone().applyAxisAngle(
-                    new THREE.Vector3(0, 1, 0),
-                    (Math.random() - 0.5) * 0.7
-                );
                 bird.velocity.set(
-                    fleeDirection.x,
-                    0.35,
-                    fleeDirection.z
+                    horizontalAway.x,
+                    0,
+                    horizontalAway.z
                 ).normalize().multiplyScalar(birdFlightSpeed);
                 setBirdPerchedPose(bird, false);
             });
