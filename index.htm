@@ -6335,7 +6335,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 const x = Math.cos(angle) * radius;
                 const z = Math.sin(angle) * radius;
                 const mesh = createBirdMesh();
-                mesh.position.set(x, window.getSurfaceHeight(x, z) + 14, z);
+                mesh.position.set(x, getBirdGroundHeight(x, z) + 14, z);
                 scene.add(mesh);
 
                 const bird = {
@@ -6355,7 +6355,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     sleepTreeBody: null,
                     restPerchTarget: null,
                     sleepingAtNest: false,
-                    nextRestAt: world.time + 30 + Math.random() * 60
+                    nextRestAt: world.time + 10 + Math.random() * 15
                 };
                 bird.velocity.set(Math.cos(bird.wanderAngle), 0, Math.sin(bird.wanderAngle))
                     .multiplyScalar(birdFlightSpeed);
@@ -6397,6 +6397,12 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             bird.nextWanderAt = world.time + 2 + Math.random() * 5;
             bird.velocity.set(Math.cos(angle), 0, Math.sin(angle))
                 .multiplyScalar(birdFlightSpeed);
+        }
+
+        function getBirdGroundHeight(x, z) {
+            return typeof window.getActualHeight === 'function'
+                ? window.getActualHeight(x, z)
+                : window.getSurfaceHeight(x, z);
         }
 
         function isBirdPerchApproachValid(start, perchPosition) {
@@ -6537,13 +6543,13 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             bird.mesh.rotateY(Math.PI);
         }
 
-        function constrainBirdFlightVelocity(bird) {
+        function constrainBirdFlightVelocity(bird, targetSpeed = birdFlightSpeed) {
             const horizontalSpeed = Math.hypot(bird.velocity.x, bird.velocity.z);
             if (horizontalSpeed < 0.001) {
                 const heading = new THREE.Vector3(0, 0, 1).applyQuaternion(bird.mesh.quaternion);
                 heading.y = 0;
                 if (heading.lengthSq() < 0.001) heading.set(1, 0, 0);
-                heading.setLength(birdFlightSpeed);
+                heading.setLength(targetSpeed);
                 bird.velocity.x = heading.x;
                 bird.velocity.z = heading.z;
             }
@@ -6558,8 +6564,8 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             if (bird.mesh.position.y >= birdMaxAltitude && bird.velocity.y > 0) {
                 bird.velocity.y = 0;
             }
-            bird.flySpeed = birdFlightSpeed;
-            bird.velocity.setLength(birdFlightSpeed);
+            bird.flySpeed = targetSpeed;
+            bird.velocity.setLength(targetSpeed);
         }
 
         function getBirdPerchPosition(body) {
@@ -6686,8 +6692,8 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
         }
 
         function isBirdFlightSegmentBlocked(start, end, ignoredBody = null) {
-            const groundStart = window.getSurfaceHeight(start.x, start.z);
-            const groundEnd = window.getSurfaceHeight(end.x, end.z);
+            const groundStart = getBirdGroundHeight(start.x, start.z);
+            const groundEnd = getBirdGroundHeight(end.x, end.z);
             const birdFloor = Math.max(groundStart, groundEnd) + 0.18;
             if (!ignoredBody?.isGroundPerch && end.y < birdFloor && end.y <= start.y) return true;
 
@@ -6745,7 +6751,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 const x = start.x + dx * progress;
                 const z = start.z + dz * progress;
                 if (hasWaterAt(x, z)) continue;
-                const y = window.getSurfaceHeight(x, z);
+                const y = getBirdGroundHeight(x, z);
                 if (y < waterLevel + 0.5 || y >= start.y - 2) continue;
                 const target = {
                     isGroundPerch: true,
@@ -6825,7 +6831,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 const z = start.z + Math.sin(angle) * distance;
                 if (Math.hypot(x, z) > birdIslandBoundary || hasWaterAt(x, z)) continue;
 
-                const position = new THREE.Vector3(x, window.getSurfaceHeight(x, z), z);
+                const position = new THREE.Vector3(x, getBirdGroundHeight(x, z), z);
                 if (position.y < waterLevel + 0.5 || position.y >= start.y - 2 ||
                     !isBirdPerchApproachValid(start, position)) {
                     continue;
@@ -7511,6 +7517,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     bird.sleepingAtNest = true;
                     bird.perchTargetBody = treeBody;
                     bird.flightMode = 'seekingTree';
+                    bird.approachSpeed = birdFlightSpeed;
                     bird.perchUntil = Infinity;
                     bird.nestOffset = new THREE.Vector3(
                         (Math.random() - 0.5) * 0.7,
@@ -7528,6 +7535,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         bird.restPerchTarget = target;
                         bird.perchTargetBody = target;
                         bird.flightMode = 'seekingRest';
+                        bird.approachSpeed = birdFlightSpeed;
                         bird.restOffset = new THREE.Vector3();
                     } else {
                         bird.nextRestAt = world.time + 10 + Math.random() * 20;
@@ -7561,7 +7569,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     bird.sleepingAtNest = false;
                     bird.perchTargetBody = null;
                     bird.flightMode = 'wandering';
-                    bird.nextRestAt = world.time + 30 + Math.random() * 60;
+                    bird.nextRestAt = world.time + 15 + Math.random() * 20;
                     setBirdPerchedPose(bird, false);
                     setBirdWanderDirection(bird);
                 }
@@ -7602,7 +7610,11 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                             setBirdPerchedPose(bird, true);
                             continue;
                         }
-                        toPerch.setLength(birdFlightSpeed);
+                        bird.approachSpeed = Math.min(
+                            birdFlightSpeed,
+                            Math.max(2, toPerch.length() * 1.5)
+                        );
+                        toPerch.setLength(bird.approachSpeed);
                         bird.velocity.lerp(toPerch, Math.min(1, delta * 1.2));
                     }
                 } else if (bird.flightMode === 'fleeing' && world.time < (bird.fleeUntil || 0)) {
@@ -7638,7 +7650,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     }
                     bird.velocity.x = direction.x * birdFlightSpeed;
                     bird.velocity.z = direction.z * birdFlightSpeed;
-                    const surfaceHeight = window.getSurfaceHeight(
+                    const surfaceHeight = getBirdGroundHeight(
                         bird.mesh.position.x,
                         bird.mesh.position.z
                     );
@@ -7650,11 +7662,24 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     );
                 }
 
-                constrainBirdFlightVelocity(bird);
+                constrainBirdFlightVelocity(
+                    bird,
+                    bird.perchTargetBody ? bird.approachSpeed : birdFlightSpeed
+                );
                 const previousBirdPosition = bird.mesh.position.clone();
                 const nextBirdPosition = previousBirdPosition.clone()
                     .add(bird.velocity.clone().multiplyScalar(delta));
                 nextBirdPosition.y = Math.min(nextBirdPosition.y, birdMaxAltitude);
+                if (bird.restPerchTarget?.isGroundPerch) {
+                    const groundHeight = getBirdGroundHeight(
+                        nextBirdPosition.x,
+                        nextBirdPosition.z
+                    );
+                    nextBirdPosition.y = Math.max(
+                        nextBirdPosition.y,
+                        groundHeight + bird.mesh.userData.perchHeight
+                    );
+                }
                 const nextRadius = Math.hypot(nextBirdPosition.x, nextBirdPosition.z);
                 if (nextRadius > birdIslandBoundary) {
                     const scale = birdIslandBoundary / nextRadius;
@@ -7689,7 +7714,10 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     bird.sleepingAtNest = false;
                     bird.perchTargetBody = null;
                 }
-                constrainBirdFlightVelocity(bird);
+                constrainBirdFlightVelocity(
+                    bird,
+                    bird.perchTargetBody ? bird.approachSpeed : birdFlightSpeed
+                );
                 if (bird.velocity.lengthSq() > 0.001) faceBirdHorizontally(bird);
 
                 const flapAngle = Math.sin(world.time * bird.flapSpeed + bird.flapOffset) * 0.8;
