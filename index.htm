@@ -6570,7 +6570,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
         function getBirdPerchPosition(body) {
             if (body?.isGroundPerch) {
-                if (hasWaterAt(body.position.x, body.position.z)) return null;
+                if (getBirdGroundHeight(body.position.x, body.position.z) <= waterLevel + 0.5) return null;
                 return body.position.clone();
             }
             if (isBirdTreeBody(body)) return null;
@@ -6603,7 +6603,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
         function isBirdPerchTargetAvailable(target, bird = null) {
             if (target?.isGroundPerch) {
-                return !hasWaterAt(target.position.x, target.position.z);
+                return getBirdGroundHeight(target.position.x, target.position.z) > waterLevel + 0.5;
             }
             if (isBirdTreeBody(target)) {
                 return target === bird?.sleepTreeBody;
@@ -6750,7 +6750,6 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 const progress = 0.15 + (i / 13) * 0.7;
                 const x = start.x + dx * progress;
                 const z = start.z + dz * progress;
-                if (hasWaterAt(x, z)) continue;
                 const y = getBirdGroundHeight(x, z);
                 if (y < waterLevel + 0.5 || y >= start.y - 2) continue;
                 const target = {
@@ -6829,7 +6828,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 const distance = 45 + Math.random() * 45;
                 const x = start.x + Math.cos(angle) * distance;
                 const z = start.z + Math.sin(angle) * distance;
-                if (Math.hypot(x, z) > birdIslandBoundary || hasWaterAt(x, z)) continue;
+                if (Math.hypot(x, z) > birdIslandBoundary) continue;
 
                 const position = new THREE.Vector3(x, getBirdGroundHeight(x, z), z);
                 if (position.y < waterLevel + 0.5 || position.y >= start.y - 2 ||
@@ -7692,10 +7691,21 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
                 const ignoredBody = bird.perchTargetBody || getBirdTakeoffClearanceBody(bird);
                 if (isBirdFlightSegmentBlocked(previousBirdPosition, nextBirdPosition, ignoredBody)) {
-                    bird.perchTargetBody = bird.sleepingAtNest
-                        ? bird.sleepTreeBody
-                        : bird.restPerchTarget;
-                    redirectBirdAroundObstacle(bird, previousBirdPosition, delta, ignoredBody);
+                    if (bird.perchTargetBody) {
+                        bird.sleepTreeBody = null;
+                        bird.restPerchTarget = null;
+                        bird.nestTreeBody = null;
+                        bird.isNestBird = false;
+                        bird.sleepingAtNest = false;
+                        bird.perchTargetBody = null;
+                        bird.state = 'flying';
+                        bird.flightMode = 'wandering';
+                        bird.nextRestAt = world.time + 5 + Math.random() * 10;
+                        setBirdPerchedPose(bird, false);
+                        setBirdWanderDirection(bird);
+                    } else {
+                        redirectBirdAroundObstacle(bird, previousBirdPosition, delta, ignoredBody);
+                    }
                 } else {
                     bird.mesh.position.copy(nextBirdPosition);
                 }
