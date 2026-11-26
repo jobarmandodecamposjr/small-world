@@ -1699,13 +1699,14 @@
         // Define as dimensões do mundo para X e Z (para efeito de envolvimento)
         const worldSize = 1200;
         let birds = []; // NOVO: Array para armazenar os pássaros
+        const birdPopulation = 11;
+        const birdIslandBoundary = 185;
         const birdPlayerFleeDistance = 10 / 3;
         const birdFlightSpeed = 16;
         const birdMaxAltitude = 80;
         const birdMaxVerticalSpeedRatio = 0.35;
         let islandAmbientAudio = null; // Som ambiente da ilha (interior)
         let beachAmbientAudio = null; // Som ambiente da praia/mar
-        let lastBirdSpawnCheck = 0; // NOVO: Controle de tempo para spawn de pássaros
         let nextBirdSoundTime = 10 + Math.random() * 20; // Próximo tempo para som de pássaro
         let birdBodyGeom, birdWingGeom, birdTailGeom, birdHeadGeom, birdBeakGeom, birdEyeGeom, birdPupilGeom, birdFootGeom, birdToeGeom;
         let birdPalettes, birdEyeMat, birdPupilMat, birdBeakMat, birdFootMat;
@@ -6320,59 +6321,62 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             return bird;
         }
 
-        function createBirdNestFlock(treeBody) {
-            if (birds.some(bird => bird.isNestBird && bird.nestTreeBody === treeBody)) return;
-            const nestPosition = getBirdNestPosition(treeBody);
-            if (!nestPosition) return;
+        function ensureBirdPopulation() {
+            while (birds.length > birdPopulation) {
+                const bird = birds.pop();
+                scene.remove(bird.mesh);
+            }
 
-            const flockSize = 1 + Math.floor(Math.random() * 5);
-            for (let i = 0; i < flockSize; i++) {
+            while (birds.length < birdPopulation) {
+                const index = birds.length;
+                const angle = index * Math.PI * 2 / birdPopulation +
+                    (Math.random() - 0.5) * 0.25;
+                const radius = 75 + Math.random() * 65;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
                 const mesh = createBirdMesh();
-                const nestOffset = new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.7,
-                    (Math.random() - 0.5) * 0.25,
-                    (Math.random() - 0.5) * 0.7
-                );
-                mesh.position.copy(nestPosition).add(nestOffset);
-                mesh.visible = false;
-                faceBirdHorizontally({ mesh, velocity: new THREE.Vector3(0, 0, 1) });
-                setBirdPerchedPose({ mesh }, true);
+                mesh.position.set(x, window.getSurfaceHeight(x, z) + 14, z);
                 scene.add(mesh);
-                birds.push({
+
+                const bird = {
                     mesh,
                     velocity: new THREE.Vector3(),
                     flapOffset: Math.random() * Math.PI * 2,
                     flapSpeed: 10 + Math.random() * 5,
                     flySpeed: birdFlightSpeed,
-                    state: 'perched',
-                    perchTargetBody: treeBody,
-                    perchUntil: Infinity,
-                    isNestBird: true,
-                    nestTreeBody: treeBody,
-                    nestOffset
-                });
+                    state: 'flying',
+                    perchTargetBody: null,
+                    perchUntil: 0,
+                    flightMode: 'circling',
+                    orbitRadius: radius,
+                    orbitDirection: index % 2 === 0 ? 1 : -1,
+                    isNestBird: false,
+                    nestTreeBody: null,
+                    sleepTreeBody: null
+                };
+                const tangent = new THREE.Vector3(-Math.sin(angle), 0, Math.cos(angle))
+                    .multiplyScalar(bird.orbitDirection * birdFlightSpeed);
+                bird.velocity.copy(tangent);
+                faceBirdHorizontally(bird);
+                birds.push(bird);
             }
         }
 
         function populateBirdNests() {
-            const matureTrees = placedConstructionBodies.filter(body =>
-                body.userData?.growthStage === 'arvore_adulta' &&
-                ['normal', 'apple', 'coconut'].includes(body.userData.treeType || 'normal')
-            );
-            const nestCount = Math.min(10, matureTrees.length);
-            const selectedTrees = matureTrees.filter(body => body.userData.hasBirdNest).slice(0, nestCount);
-            const availableTrees = matureTrees.filter(body => !selectedTrees.includes(body));
+            ensureBirdPopulation();
+        }
 
-            for (let i = availableTrees.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [availableTrees[i], availableTrees[j]] = [availableTrees[j], availableTrees[i]];
-            }
-            selectedTrees.push(...availableTrees.slice(0, nestCount - selectedTrees.length));
-
-            matureTrees.forEach(body => {
-                body.userData.hasBirdNest = selectedTrees.includes(body);
+        function getAvailableBirdSleepTrees() {
+            return placedConstructionBodies.filter(body => {
+                if (body.userData?.growthStage !== 'arvore_adulta' ||
+                    !['normal', 'apple', 'coconut'].includes(body.userData.treeType || 'normal') ||
+                    Math.hypot(body.position.x, body.position.z) > birdIslandBoundary ||
+                    window.getSurfaceHeight(body.position.x, body.position.z) <= waterLevel ||
+                    !getBirdNestPosition(body)) {
+                    return false;
+                }
+                return true;
             });
-            selectedTrees.forEach(createBirdNestFlock);
         }
 
         function getBirdNestPosition(treeBody) {
@@ -6397,13 +6401,11 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
         function spawnBirdsFromTree(treeBody) {
             if (!treeBody) return 0;
-            let nestBirds = birds.filter(bird => bird.isNestBird && bird.nestTreeBody === treeBody);
-            if (nestBirds.length === 0) {
-                if (!treeBody.userData?.hasBirdNest) return 0;
-                createBirdNestFlock(treeBody);
-                nestBirds = birds.filter(bird => bird.isNestBird && bird.nestTreeBody === treeBody);
-            }
-
+            const nestBirds = birds.filter(bird =>
+                bird.sleepTreeBody === treeBody ||
+                bird.nestTreeBody === treeBody ||
+                bird.perchTargetBody === treeBody
+            );
             treeBody.userData.hasBirdNest = false;
             const launchPosition = getBirdNestPosition(treeBody) || treeBody.position.clone();
             const horizontalAway = playerBody
@@ -6431,9 +6433,12 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 bird.mesh.visible = true;
                 bird.isNestBird = false;
                 bird.nestTreeBody = null;
+                bird.sleepTreeBody = null;
                 bird.perchTargetBody = null;
                 bird.state = 'flying';
                 bird.perchUntil = 0;
+                bird.flightMode = 'fleeing';
+                bird.fleeUntil = world.time + 2.5;
                 bird.velocity.set(
                     horizontalAway.x,
                     0,
@@ -6480,17 +6485,14 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 }
                 bird.mesh.visible = true;
                 bird.state = 'flying';
+                bird.sleepTreeBody = null;
+                bird.nestTreeBody = null;
+                bird.isNestBird = false;
                 bird.perchTargetBody = null;
                 bird.terrainFleeUntil = world.time + 2.5;
-                if (bird.isNestBird) {
-                    bird.returnToNestAt = world.time + 10 + Math.random() * 8;
-                }
-
-                const away = new THREE.Vector3(
-                    nearestDx + (Math.random() - 0.5) * 4,
-                    4 + Math.random() * 3,
-                    nearestDz + (Math.random() - 0.5) * 4
-                );
+                bird.flightMode = 'fleeing';
+                bird.fleeUntil = world.time + 2.5;
+                const away = new THREE.Vector3(nearestDx, 0, nearestDz);
                 if (away.lengthSq() < 0.001) away.set(1, 0, 0);
                 bird.velocity.copy(away.normalize().multiplyScalar(birdFlightSpeed));
                 bird.soundTime = world.time;
@@ -6584,8 +6586,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 return !hasWaterAt(target.position.x, target.position.z);
             }
             if (isBirdTreeBody(target)) {
-                return !!bird?.isNestBird && target === bird.nestTreeBody &&
-                    !!target.userData.hasBirdNest;
+                return !!bird?.isNestBird && target === bird.sleepTreeBody;
             }
             if (target?.userData?.type === campfireItemName) return false;
             return placedConstructionBodies.includes(target) ||
@@ -6916,10 +6917,8 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             // Se o pássaro mais próximo estiver muito longe, não toca som
             if (minBirdDist > 300) return;
 
-            const hasNearbyNest = isNestFleeSound || placedConstructionBodies.some(body =>
-                body.userData?.growthStage === 'arvore_adulta' &&
-                body.userData.hasBirdNest &&
-                body.position.distanceTo(playerPos) <= 300
+            const hasNearbyBirds = isNestFleeSound || birds.some(bird =>
+                bird.mesh.visible && bird.mesh.position.distanceTo(playerPos) <= 300
             );
             const dist = calculateWrappedDistance(playerPos, new THREE.Vector3(0, playerPos.y, 0));
 
@@ -6927,10 +6926,10 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
             if (dist < capimRadius) {
                 // Parte central da ilha (capim): apenas pássaros
-                pool = hasNearbyNest ? birdSoundUrls : [];
+                pool = hasNearbyBirds ? birdSoundUrls : [];
             } else if (dist < beachRadius) {
                 // Parte da praia: gaivotas e pássaros
-                pool = (hasNearbyNest ? birdSoundUrls : []).concat(seagullSoundUrls);
+                pool = (hasNearbyBirds ? birdSoundUrls : []).concat(seagullSoundUrls);
             } else {
                 // No mar: apenas gaivotas
                 pool = seagullSoundUrls;
@@ -7369,61 +7368,44 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
         }
 
         function spawnBirdGroup() {
-            const groupSize = 1 + Math.floor(Math.pow(Math.random(), 2) * 7);
-            const altitude = 30 + Math.random() * 50;
-            const spawnDist = Math.min(worldSize * 0.5, renderDistance * 0.9); // Surjam dentro da distância de visão
-            const spawnAngle = Math.random() * Math.PI * 2;
-
-            const basePos = new THREE.Vector3(
-                camera.position.x + Math.cos(spawnAngle) * spawnDist,
-                altitude,
-                camera.position.z + Math.sin(spawnAngle) * spawnDist
-            );
-
-            // Direção para atravessar o horizonte: mira o lado oposto com um pequeno desvio
-            const targetAngle = spawnAngle + Math.PI + (Math.random() - 0.5) * 1.0;
-            const targetPos = new THREE.Vector3(
-                camera.position.x + Math.cos(targetAngle) * spawnDist,
-                altitude,
-                camera.position.z + Math.sin(targetAngle) * spawnDist
-            );
-
-            const direction = new THREE.Vector3().subVectors(targetPos, basePos).normalize();
-            direction.y = 0; // Voar sempre horizontalmente
-
-            const groupVelocity = direction.multiplyScalar(birdFlightSpeed);
-
-            for (let i = 0; i < groupSize; i++) {
-                const birdMesh = createBirdMesh();
-                const offset = new THREE.Vector3(
-                    (Math.random() - 0.5) * 10,
-                    (Math.random() - 0.5) * 5,
-                    (Math.random() - 0.5) * 10
-                );
-                birdMesh.position.copy(basePos).add(offset);
-                scene.add(birdMesh);
-
-                birds.push({
-                    mesh: birdMesh,
-                    velocity: groupVelocity.clone(),
-                    flapOffset: Math.random() * Math.PI * 2,
-                    flapSpeed: 10 + Math.random() * 5,
-                    flySpeed: birdFlightSpeed,
-                    state: 'flying',
-                    perchTargetBody: Math.random() < 0.7 ? findBirdPerchTarget(basePos, targetPos) : null,
-                    perchUntil: 0
-                });
-            }
+            ensureBirdPopulation();
         }
 
-        function updateBirds(delta, despawnDist) {
-            for (let i = birds.length - 1; i >= 0; i--) {
-                const bird = birds[i];
+        function updateBirds(delta, despawnDist, isNight = false) {
+            ensureBirdPopulation();
+            const availableTrees = isNight ? getAvailableBirdSleepTrees() : [];
+
+            for (const bird of birds) {
                 bird.mesh.scale.setScalar(bird.mesh.userData.heightScale);
-                if (!bird.isNestBird && bird.mesh.position.distanceTo(camera.position) > despawnDist) {
-                    scene.remove(bird.mesh);
-                    birds.splice(i, 1);
-                    continue;
+                bird.mesh.visible = true;
+
+                if (!isNight && bird.sleepTreeBody) {
+                    bird.takeoffClearanceBody = bird.sleepTreeBody;
+                    bird.sleepTreeBody = null;
+                    bird.nestTreeBody = null;
+                    bird.isNestBird = false;
+                    bird.perchTargetBody = null;
+                    bird.state = 'flying';
+                    bird.flightMode = 'circling';
+                    bird.fleeUntil = 0;
+                    setBirdPerchedPose(bird, false);
+                    bird.velocity.set(-bird.mesh.position.z, 0, bird.mesh.position.x)
+                        .normalize().multiplyScalar(birdFlightSpeed);
+                }
+
+                if (bird.state === 'perched' &&
+                    (!isNight || !isBirdPerchTargetAvailable(bird.sleepTreeBody, bird))) {
+                    bird.takeoffClearanceBody = bird.sleepTreeBody;
+                    bird.sleepTreeBody = null;
+                    bird.nestTreeBody = null;
+                    bird.isNestBird = false;
+                    bird.perchTargetBody = null;
+                    bird.state = 'flying';
+                    bird.flightMode = isNight ? 'fleeing' : 'circling';
+                    bird.fleeUntil = isNight ? world.time + 2.5 : 0;
+                    setBirdPerchedPose(bird, false);
+                    bird.velocity.set(-bird.mesh.position.z, 0, bird.mesh.position.x)
+                        .normalize().multiplyScalar(birdFlightSpeed);
                 }
 
                 if (playerBody) {
@@ -7437,121 +7419,105 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         Object.values(keysPressed).some(Boolean);
 
                     if (playerNear && playerActive) {
-                        if (bird.state === 'perched') {
-                            setBirdPerchedPose(bird, false);
-                            bird.takeoffClearanceBody = bird.perchTargetBody;
-                        }
-                        bird.mesh.visible = true;
-                        if (bird.isNestBird) {
-                            bird.returnToNestAt = world.time + 8 + Math.random() * 10;
-                        }
+                        if (bird.state === 'perched') setBirdPerchedPose(bird, false);
+                        bird.takeoffClearanceBody = bird.perchTargetBody;
+                        bird.sleepTreeBody = null;
+                        bird.nestTreeBody = null;
+                        bird.isNestBird = false;
                         bird.state = 'flying';
+                        bird.flightMode = 'fleeing';
+                        bird.fleeUntil = world.time + 2.5;
                         bird.perchTargetBody = null;
-                        bird.velocity.set(-playerDx, 4 + Math.random() * 2, -playerDz);
-                        bird.velocity.normalize().multiplyScalar(birdFlightSpeed);
+                        bird.velocity.set(-playerDx, 0, -playerDz)
+                            .normalize().multiplyScalar(birdFlightSpeed);
                     }
                 }
 
-                if (bird.isNestBird && bird.state === 'flying' &&
-                    bird.returnToNestAt !== undefined && world.time >= bird.returnToNestAt) {
-                    const nestPosition = getBirdNestPosition(bird.nestTreeBody);
-                    const hasNestTarget = bird.nestTreeBody?.userData?.hasBirdNest &&
-                        isBirdPerchTargetAvailable(bird.nestTreeBody, bird) && nestPosition;
-                    if (hasNestTarget && isBirdPerchApproachValid(bird.mesh.position, nestPosition)) {
-                        bird.perchTargetBody = bird.nestTreeBody;
-                        bird.returnToNestAt = undefined;
-                    } else if (hasNestTarget) {
-                        bird.returnToNestAt = world.time + 5;
-                    } else {
-                        bird.isNestBird = false;
-                        bird.nestTreeBody = null;
-                        bird.returnToNestAt = undefined;
-                    }
+                if (isNight && bird.state === 'flying' && !bird.sleepTreeBody &&
+                    world.time >= (bird.fleeUntil || 0) && availableTrees.length > 0) {
+                    const treeBody = availableTrees[Math.floor(Math.random() * availableTrees.length)];
+                    bird.sleepTreeBody = treeBody;
+                    bird.nestTreeBody = treeBody;
+                    bird.isNestBird = true;
+                    bird.perchTargetBody = treeBody;
+                    bird.flightMode = 'seekingTree';
+                    bird.nestOffset = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.7,
+                        (Math.random() - 0.5) * 0.25,
+                        (Math.random() - 0.5) * 0.7
+                    );
                 }
 
                 if (bird.state === 'perched') {
-                    if (!isBirdPerchTargetAvailable(bird.perchTargetBody, bird)) {
-                        setBirdPerchedPose(bird, false);
-                        bird.takeoffClearanceBody = bird.perchTargetBody;
-                        bird.mesh.visible = true;
-                        bird.state = 'flying';
-                        bird.perchTargetBody = null;
-                        bird.velocity.set((Math.random() - 0.5) * 12, 4, (Math.random() - 0.5) * 12)
-                            .normalize().multiplyScalar(birdFlightSpeed);
-                    } else if (world.time < bird.perchUntil) {
-                        const isReturningToNest = bird.isNestBird &&
-                            bird.perchTargetBody === bird.nestTreeBody;
-                        const perchPosition = isReturningToNest
-                            ? getBirdNestPosition(bird.nestTreeBody)
-                            : getBirdPerchPosition(bird.perchTargetBody);
-                        if (perchPosition) {
-                            if (!isReturningToNest) perchPosition.y += bird.mesh.userData.perchHeight;
-                            bird.mesh.position.copy(perchPosition).add(bird.nestOffset || new THREE.Vector3());
-                            if (isReturningToNest) bird.mesh.visible = false;
-                            continue;
-                        }
-                        setBirdPerchedPose(bird, false);
-                        bird.takeoffClearanceBody = bird.perchTargetBody;
-                        bird.mesh.visible = true;
-                        bird.state = 'flying';
-                        bird.perchTargetBody = null;
-                        bird.velocity.set((Math.random() - 0.5) * 12, 4, (Math.random() - 0.5) * 12)
-                            .normalize().multiplyScalar(birdFlightSpeed);
-                    } else {
-                        setBirdPerchedPose(bird, false);
-                        bird.takeoffClearanceBody = bird.perchTargetBody;
-                        bird.mesh.visible = true;
-                        bird.state = 'flying';
-                        bird.perchTargetBody = null;
-                        bird.velocity.set((Math.random() - 0.5) * 12, 4, (Math.random() - 0.5) * 12)
-                            .normalize().multiplyScalar(birdFlightSpeed);
+                    const perchPosition = getBirdNestPosition(bird.sleepTreeBody);
+                    if (perchPosition) {
+                        bird.mesh.position.copy(perchPosition).add(bird.nestOffset || new THREE.Vector3());
+                        continue;
                     }
+                    bird.state = 'flying';
+                    bird.sleepTreeBody = null;
+                    bird.nestTreeBody = null;
+                    bird.isNestBird = false;
+                    bird.perchTargetBody = null;
                 }
 
-                if (bird.perchTargetBody) {
-                    const isReturningToNest = bird.isNestBird &&
-                        bird.perchTargetBody === bird.nestTreeBody;
-                    const perchPosition = isReturningToNest
-                        ? getBirdNestPosition(bird.nestTreeBody)
-                        : getBirdPerchPosition(bird.perchTargetBody);
-                    if (!isBirdPerchTargetAvailable(bird.perchTargetBody, bird) || !perchPosition) {
+                if (bird.sleepTreeBody) {
+                    const perchPosition = getBirdNestPosition(bird.sleepTreeBody);
+                    if (!isBirdPerchTargetAvailable(bird.sleepTreeBody, bird) || !perchPosition) {
+                        bird.sleepTreeBody = null;
+                        bird.nestTreeBody = null;
+                        bird.isNestBird = false;
                         bird.perchTargetBody = null;
+                        bird.flightMode = 'fleeing';
+                        bird.fleeUntil = world.time + 2.5;
                     } else {
-                        if (!isReturningToNest) perchPosition.y += bird.mesh.userData.perchHeight;
-                        const toPerch = perchPosition.clone().sub(bird.mesh.position);
-                        if (isBirdFlightSegmentBlocked(
-                            bird.mesh.position,
-                            perchPosition,
-                            isReturningToNest ? bird.nestTreeBody : bird.perchTargetBody
-                        )) {
-                            bird.perchTargetBody = null;
-                            bird.velocity.set(
-                                (Math.random() - 0.5) * birdFlightSpeed,
-                                Math.max(5, birdFlightSpeed * 0.5),
-                                (Math.random() - 0.5) * birdFlightSpeed
-                            ).normalize().multiplyScalar(birdFlightSpeed);
-                        } else {
-                            if (toPerch.length() < 0.65) {
-                                bird.mesh.position.copy(perchPosition);
-                                if (isReturningToNest) {
-                                    bird.perchUntil = Infinity;
-                                    bird.returnToNestAt = undefined;
-                                    bird.mesh.visible = false;
-                                } else {
-                                    const longPerch = Math.random() < 0.18;
-                                    bird.perchUntil = world.time + (longPerch ? 30 + Math.random() * 35 : 8 + Math.random() * 14);
-                                }
-                                faceBirdHorizontally(bird);
-                                bird.state = 'perched';
-                                bird.takeoffClearanceBody = null;
-                                setBirdPerchedPose(bird, true);
-                                bird.velocity.set(0, 0, 0);
-                                continue;
-                            }
-                            toPerch.setLength(birdFlightSpeed);
-                            bird.velocity.lerp(toPerch, Math.min(1, delta * 1.2));
+                        bird.perchTargetBody = bird.sleepTreeBody;
+                        const toPerch = perchPosition.clone().add(bird.nestOffset).sub(bird.mesh.position);
+                        if (toPerch.length() < 0.65) {
+                            bird.mesh.position.copy(perchPosition).add(bird.nestOffset);
+                            bird.state = 'perched';
+                            bird.perchTargetBody = bird.sleepTreeBody;
+                            bird.perchUntil = Infinity;
+                            bird.velocity.set(0, 0, 0);
+                            faceBirdHorizontally(bird);
+                            setBirdPerchedPose(bird, true);
+                            continue;
                         }
+                        toPerch.setLength(birdFlightSpeed);
+                        bird.velocity.lerp(toPerch, Math.min(1, delta * 1.2));
                     }
+                } else if (bird.flightMode === 'fleeing' && world.time < (bird.fleeUntil || 0)) {
+                    bird.velocity.y = 0;
+                } else {
+                    bird.flightMode = 'circling';
+                    const radius = Math.hypot(bird.mesh.position.x, bird.mesh.position.z);
+                    const safeRadius = Math.max(radius, 0.001);
+                    const radialX = bird.mesh.position.x / safeRadius;
+                    const radialZ = bird.mesh.position.z / safeRadius;
+                    const tangent = new THREE.Vector3(
+                        -radialZ * bird.orbitDirection,
+                        0,
+                        radialX * bird.orbitDirection
+                    );
+                    const radialCorrection = THREE.MathUtils.clamp(
+                        (bird.orbitRadius - radius) * 0.08,
+                        -0.5,
+                        0.5
+                    );
+                    tangent.add(new THREE.Vector3(radialX, 0, radialZ).multiplyScalar(radialCorrection))
+                        .normalize().multiplyScalar(birdFlightSpeed * 0.6);
+                    bird.velocity.x = tangent.x;
+                    bird.velocity.z = tangent.z;
+                    const surfaceHeight = window.getSurfaceHeight(
+                        bird.mesh.position.x,
+                        bird.mesh.position.z
+                    );
+                    const targetAltitude = surfaceHeight + 14;
+                    bird.velocity.y = THREE.MathUtils.clamp(
+                        (targetAltitude - bird.mesh.position.y) * 0.8,
+                        -birdFlightSpeed * birdMaxVerticalSpeedRatio,
+                        birdFlightSpeed * birdMaxVerticalSpeedRatio
+                    );
                 }
 
                 constrainBirdFlightVelocity(bird);
@@ -7559,24 +7525,40 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 const nextBirdPosition = previousBirdPosition.clone()
                     .add(bird.velocity.clone().multiplyScalar(delta));
                 nextBirdPosition.y = Math.min(nextBirdPosition.y, birdMaxAltitude);
-                const ignoringPerchBody = bird.perchTargetBody && !bird.perchTargetBody.isGroundPerch
-                    ? bird.perchTargetBody
-                    : getBirdTakeoffClearanceBody(bird);
+                const nextRadius = Math.hypot(nextBirdPosition.x, nextBirdPosition.z);
+                if (nextRadius > birdIslandBoundary) {
+                    const scale = birdIslandBoundary / nextRadius;
+                    nextBirdPosition.x *= scale;
+                    nextBirdPosition.z *= scale;
+                    bird.orbitRadius = Math.min(bird.orbitRadius, birdIslandBoundary - 20);
+                    bird.flightMode = 'circling';
+                }
 
-                if (isBirdFlightSegmentBlocked(previousBirdPosition, nextBirdPosition, ignoringPerchBody)) {
-                    if (bird.isNestBird && bird.perchTargetBody === bird.nestTreeBody) {
-                        bird.returnToNestAt = world.time + 8 + Math.random() * 10;
-                    }
-                    bird.perchTargetBody = null;
-                    redirectBirdAroundObstacle(bird, previousBirdPosition, delta, ignoringPerchBody);
-                    faceBirdHorizontally(bird);
+                const ignoredBody = bird.perchTargetBody || getBirdTakeoffClearanceBody(bird);
+                if (isBirdFlightSegmentBlocked(previousBirdPosition, nextBirdPosition, ignoredBody)) {
+                    bird.perchTargetBody = bird.sleepTreeBody || null;
+                    redirectBirdAroundObstacle(bird, previousBirdPosition, delta, ignoredBody);
                 } else {
                     bird.mesh.position.copy(nextBirdPosition);
                 }
-                constrainBirdFlightVelocity(bird);
-                if (bird.velocity.lengthSq() > 0.001) {
-                    faceBirdHorizontally(bird);
+                const currentRadius = Math.hypot(bird.mesh.position.x, bird.mesh.position.z);
+                if (currentRadius > birdIslandBoundary) {
+                    const scale = birdIslandBoundary / currentRadius;
+                    bird.mesh.position.x *= scale;
+                    bird.mesh.position.z *= scale;
+                    bird.velocity.set(
+                        -bird.mesh.position.z * bird.orbitDirection,
+                        0,
+                        bird.mesh.position.x * bird.orbitDirection
+                    ).normalize().multiplyScalar(birdFlightSpeed);
+                    bird.flightMode = 'circling';
+                    bird.sleepTreeBody = null;
+                    bird.nestTreeBody = null;
+                    bird.isNestBird = false;
+                    bird.perchTargetBody = null;
                 }
+                constrainBirdFlightVelocity(bird);
+                if (bird.velocity.lengthSq() > 0.001) faceBirdHorizontally(bird);
 
                 const flapAngle = Math.sin(world.time * bird.flapSpeed + bird.flapOffset) * 0.8;
                 const foldAmount = (1 - Math.cos(world.time * bird.flapSpeed * 0.55 + bird.flapOffset)) / 2;
@@ -7584,12 +7566,6 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 bird.mesh.userData.rightWing.rotation.y = -foldAmount * 0.7;
                 bird.mesh.userData.leftWing.rotation.z = flapAngle;
                 bird.mesh.userData.rightWing.rotation.z = -flapAngle;
-                if (bird.soundTime !== undefined && world.time >= bird.soundTime) {
-                    bird.soundTime = undefined;
-                    bird.fleeSoundPlayed = true;
-                    playAmbientBirdSound(true);
-                }
-
             }
         }
 
@@ -15024,15 +15000,6 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             // NOVO: Atualiza o sistema de pássaros (frequência reduzida pela metade)
             if (!gamePaused) {
                 if (sunAltitude > 0 && rainIntensity <= 0.05) {
-                    // Spawn de grupos de pássaros
-                    if (world.time - lastBirdSpawnCheck > 3) {
-                        lastBirdSpawnCheck = world.time;
-                        // Frequência aumentada: 40% de chance a cada 3 segundos
-                        if (Math.random() < 0.4) {
-                            spawnBirdGroup();
-                        }
-                    }
-
                     // Sons ambientais de pássaros (10-30 segundos de intervalo)
                     if (world.time > nextBirdSoundTime) {
                         playAmbientBirdSound();
@@ -15040,7 +15007,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     }
                 }
 
-                updateBirds(delta, despawnDist);
+                updateBirds(delta, despawnDist, sunAltitude <= 0);
             }
 
             // Intensidade local é global agora
@@ -16346,11 +16313,9 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             if (!saveData || !saveData.player) return;
 
             for (let i = birds.length - 1; i >= 0; i--) {
-                if (birds[i].isNestBird) {
-                    scene.remove(birds[i].mesh);
-                    birds.splice(i, 1);
-                }
+                scene.remove(birds[i].mesh);
             }
+            birds.length = 0;
 
             // Limpa construções colocadas
             for (let i = placedConstructionBodies.length - 1; i >= 0; i--) {
