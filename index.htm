@@ -6355,7 +6355,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     sleepTreeBody: null,
                     restPerchTarget: null,
                     sleepingAtNest: false,
-                    nextRestAt: world.time + 10 + Math.random() * 15
+                    nextRestAt: world.time + getBirdDayFlightDuration()
                 };
                 bird.velocity.set(Math.cos(bird.wanderAngle), 0, Math.sin(bird.wanderAngle))
                     .multiplyScalar(birdFlightSpeed);
@@ -6397,6 +6397,10 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             bird.nextWanderAt = world.time + 2 + Math.random() * 5;
             bird.velocity.set(Math.cos(angle), 0, Math.sin(angle))
                 .multiplyScalar(birdFlightSpeed);
+        }
+
+        function getBirdDayFlightDuration() {
+            return 20 + Math.random() * 15;
         }
 
         function getBirdGroundHeight(x, z) {
@@ -6451,7 +6455,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 bird.sleepTreeBody = null;
                 bird.restPerchTarget = null;
                 bird.sleepingAtNest = false;
-                bird.nextRestAt = world.time + 20 + Math.random() * 30;
+                bird.nextRestAt = world.time + getBirdDayFlightDuration();
                 bird.perchTargetBody = null;
                 bird.state = 'flying';
                 bird.perchUntil = 0;
@@ -6511,7 +6515,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                 bird.terrainFleeUntil = world.time + 2.5;
                 bird.flightMode = 'fleeing';
                 bird.fleeUntil = world.time + 2.5;
-                bird.nextRestAt = bird.fleeUntil + 15 + Math.random() * 30;
+                bird.nextRestAt = bird.fleeUntil + getBirdDayFlightDuration();
                 const away = new THREE.Vector3(nearestDx, 0, nearestDz);
                 if (away.lengthSq() < 0.001) away.set(1, 0, 0);
                 bird.velocity.copy(away.normalize().multiplyScalar(birdFlightSpeed));
@@ -7496,7 +7500,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         bird.state = 'flying';
                         bird.flightMode = 'fleeing';
                         bird.fleeUntil = world.time + 2.5;
-                        bird.nextRestAt = bird.fleeUntil + 15 + Math.random() * 30;
+                        bird.nextRestAt = bird.fleeUntil + getBirdDayFlightDuration();
                         bird.perchTargetBody = null;
                         bird.velocity.set(-playerDx, 0, -playerDz)
                             .normalize().multiplyScalar(birdFlightSpeed);
@@ -7537,7 +7541,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         bird.approachSpeed = birdFlightSpeed;
                         bird.restOffset = new THREE.Vector3();
                     } else {
-                        bird.nextRestAt = world.time + 10 + Math.random() * 20;
+                        bird.nextRestAt = world.time + 10 + Math.random() * 10;
                     }
                 }
 
@@ -7568,7 +7572,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     bird.sleepingAtNest = false;
                     bird.perchTargetBody = null;
                     bird.flightMode = 'wandering';
-                    bird.nextRestAt = world.time + 15 + Math.random() * 20;
+                    bird.nextRestAt = world.time + getBirdDayFlightDuration();
                     setBirdPerchedPose(bird, false);
                     setBirdWanderDirection(bird);
                 }
@@ -7589,7 +7593,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         bird.perchTargetBody = null;
                         bird.flightMode = 'fleeing';
                         bird.fleeUntil = world.time + 2.5;
-                        bird.nextRestAt = bird.fleeUntil + 15 + Math.random() * 30;
+                        bird.nextRestAt = bird.fleeUntil + getBirdDayFlightDuration();
                     } else {
                         bird.perchTargetBody = perchTarget;
                         if (!bird.sleepingAtNest) perchPosition.y += bird.mesh.userData.perchHeight;
@@ -7603,7 +7607,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                             bird.perchTargetBody = perchTarget;
                             bird.perchUntil = bird.sleepingAtNest
                                 ? Infinity
-                                : world.time + 20 + Math.random() * 40;
+                                : world.time + 20 + Math.random() * 15;
                             bird.velocity.set(0, 0, 0);
                             faceBirdHorizontally(bird);
                             setBirdPerchedPose(bird, true);
@@ -7700,7 +7704,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                         bird.perchTargetBody = null;
                         bird.state = 'flying';
                         bird.flightMode = 'wandering';
-                        bird.nextRestAt = world.time + 5 + Math.random() * 10;
+                        bird.nextRestAt = world.time + 10 + Math.random() * 10;
                         setBirdPerchedPose(bird, false);
                         setBirdWanderDirection(bird);
                     } else {
