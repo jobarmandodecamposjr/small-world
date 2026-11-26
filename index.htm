@@ -6255,23 +6255,26 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             belly.scale.set(0.16, 0.145, 0.27);
             bird.add(belly);
 
+            const headPivot = new THREE.Group();
+            headPivot.position.set(0, 0.095, -0.29);
+            bird.add(headPivot);
+
             const head = new THREE.Mesh(birdHeadGeom, palette.body);
-            head.position.set(0, 0.095, -0.29);
             head.scale.set(0.145, 0.14, 0.15);
-            bird.add(head);
+            headPivot.add(head);
 
             const beak = new THREE.Mesh(birdBeakGeom, birdBeakMat);
-            beak.position.set(0, 0.055, -0.47);
-            bird.add(beak);
+            beak.position.set(0, -0.04, -0.18);
+            headPivot.add(beak);
 
             const feet = [];
             for (const side of [-1, 1]) {
                 const eye = new THREE.Mesh(birdEyeGeom, birdEyeMat);
-                eye.position.set(side * 0.12, 0.12, -0.335);
-                bird.add(eye);
+                eye.position.set(side * 0.12, 0.025, -0.045);
+                headPivot.add(eye);
                 const pupil = new THREE.Mesh(birdPupilGeom, birdPupilMat);
-                pupil.position.set(side * 0.143, 0.12, -0.35);
-                bird.add(pupil);
+                pupil.position.set(side * 0.143, 0.025, -0.06);
+                headPivot.add(pupil);
 
                 const foot = new THREE.Group();
                 foot.position.set(side * 0.075, -0.21, 0.015);
@@ -6312,7 +6315,15 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             const birdHeight = new THREE.Box3().setFromObject(bird).getSize(new THREE.Vector3()).y;
             const heightScale = 0.25 / birdHeight;
             bird.scale.setScalar(heightScale);
-            bird.userData = { leftWing: leftWingPivot, rightWing: rightWingPivot, body, tail, feet, heightScale };
+            bird.userData = {
+                leftWing: leftWingPivot,
+                rightWing: rightWingPivot,
+                headPivot,
+                body,
+                tail,
+                feet,
+                heightScale
+            };
             setBirdPerchedPose({ mesh: bird }, true);
             bird.updateMatrixWorld(true);
             bird.userData.perchHeight = -new THREE.Box3().setFromObject(bird).min.y;
@@ -6355,7 +6366,9 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
                     sleepTreeBody: null,
                     restPerchTarget: null,
                     sleepingAtNest: false,
-                    nextRestAt: world.time + getBirdDayFlightDuration()
+                    nextRestAt: world.time + getBirdDayFlightDuration(),
+                    headLookTarget: 0,
+                    nextHeadLookAt: world.time + 0.5 + Math.random() * 2
                 };
                 bird.velocity.set(Math.cos(bird.wanderAngle), 0, Math.sin(bird.wanderAngle))
                     .multiplyScalar(birdFlightSpeed);
@@ -6401,6 +6414,19 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
 
         function getBirdDayFlightDuration() {
             return 20 + Math.random() * 15;
+        }
+
+        function updateBirdHeadLook(bird, delta) {
+            if (world.time >= bird.nextHeadLookAt) {
+                bird.headLookTarget = Math.random() < 0.75
+                    ? (Math.random() < 0.5 ? -1 : 1) * (0.3 + Math.random() * 0.45)
+                    : 0;
+                bird.nextHeadLookAt = world.time + 1.5 + Math.random() * 3;
+            }
+
+            const headPivot = bird.mesh.userData.headPivot;
+            const blend = 1 - Math.exp(-delta * 5);
+            headPivot.rotation.y += (bird.headLookTarget - headPivot.rotation.y) * blend;
         }
 
         function getBirdGroundHeight(x, z) {
@@ -7444,6 +7470,7 @@ boxItemName, raftItemName, branchItemName, saltItemName, stoneBlockItemName,
             for (const bird of birds) {
                 bird.mesh.scale.setScalar(bird.mesh.userData.heightScale);
                 bird.mesh.visible = true;
+                updateBirdHeadLook(bird, delta);
 
                 if (isNight && bird.sleepTreeBody && !bird.sleepingAtNest) {
                     bird.sleepingAtNest = true;
